@@ -40,15 +40,13 @@ TESTDEFS = -DTEST_DATA_DIR=$(abspath test/data)
 # for boost 1.37, add -mt to the boost libraries
 LIBS += \
  -Wl,-B$(LMODE) \
-	-L/root/openssl-1.0.2a_inst/lib/ \
-	-L/root/boost_1_60/lib/ \
-   -l boost_system$(BOOST_LIB_SUFFIX) \
-   -l boost_filesystem$(BOOST_LIB_SUFFIX) \
-   -l boost_program_options$(BOOST_LIB_SUFFIX) \
-   -l boost_thread$(BOOST_LIB_SUFFIX) \
-   -l boost_chrono$(BOOST_LIB_SUFFIX) \
+   boost_inst/lib/libboost_system.a \
+   boost_inst/lib/libboost_filesystem.a \
+   boost_inst/lib/libboost_program_options.a \
+   boost_inst/lib/libboost_thread.a \
+   boost_inst/lib/libboost_chrono.a \
    -l db_cxx-5.3 \
-   -l ssl \
+   openssl_inst/lib/libssl.a openssl_inst/lib/libcrypto.a \
    -l gmp \
    -l crypto
 
@@ -56,7 +54,8 @@ ifndef USE_UPNP
 	override USE_UPNP = -
 endif
 ifneq (${USE_UPNP}, -)
-	LIBS += -l miniupnpc
+	#LIBS += -l miniupnpc
+	LIBS += miniupnpc_inst/lib/libminiupnpc.a
 	DEFS += -DUSE_UPNP=$(USE_UPNP)
 endif
 
@@ -114,8 +113,8 @@ xCXXFLAGS=-O2 -pthread -Wall -Wextra -Wformat  -Wno-unused-parameter -DHAVE_CXX_
 	-Wno-literal-suffix -Wno-deprecated-copy -Wno-unused-local-typedefs -Wno-deprecated-declarations -Wno-misleading-indentation \
 	-Wno-format -Wno-return-type -Wno-stringop-truncation -Wno-class-memaccess -Wno-unused-variable \
 	-Wno-parentheses -Wno-placement-new -Wno-maybe-uninitialized -Wno-char-subscripts -Wno-stack-protector \
-	-I/root/openssl-1.0.2a_inst/include/ -I/usr/include/db5.3 \
-	-I/root/boost_1_60/include/ \
+	-Iopenssl_inst/include/ -I/usr/include/db5.3 \
+	-Iboost_inst/include/ -Iminiupnpc_inst/include/ \
 	-I/usr/include/glibmm-2.4 $(DEBUGFLAGS) $(DEFS) $(HARDENING) $(CXXFLAGS)
 
 # If we have an ARM device, we can't use SSE2 instructions, so don't try to use them
@@ -168,7 +167,7 @@ OBJS= \
     obj/whirlpool.o \
     obj/magimath.o
     
-all: magid
+all: externals magid
 
 # LevelDB
 LIBS += $(CURDIR)/leveldb/libleveldb.a $(CURDIR)/leveldb/libmemenv.a
@@ -192,6 +191,35 @@ clientversion.cpp: obj/build.h
 DEFS += -DHAVE_BUILD_INFO
 
 openssl_inst/lib/libssl.a:
+	if [ ! -e openssl-1.0.2a.tar.gz ] ; then wget http://www.openssl.org/source/openssl-1.0.2a.tar.gz ; fi 
+	if [ ! -e openssl-1.0.2a ] ; then tar -xvzf openssl-1.0.2a.tar.gz ; fi
+	( cd openssl-1.0.2a ; ./config --prefix=$(shell pwd)/openssl_inst )
+	make -C openssl-1.0.2a
+	make -C openssl-1.0.2a install
+	
+boost_inst/lib/libboost_atomic.a:
+	if [ ! -e boost_1_60_0.tar.bz2 ] ; then wget http://sourceforge.net/projects/boost/files/boost/1.60.0/boost_1_60_0.tar.bz2 ; fi
+	if [ ! -e boost_1_60_0 ] ; then tar -xaf boost_1_60_0.tar.bz2; fi
+	if [ ! -e boost_1_60_0/b2 ] ; then ( cd boost_1_60_0; ./bootstrap.sh --prefix=$(shell pwd)/boost_inst  ) ; fi
+	( cd boost_1_60_0; ./b2 -j$$(nproc) --ignore-site-config cxxflags="-Wno-parentheses -Wno-deprecated-declarations -Wno-maybe-uninitialized -Wno-placement-new -Wno-unused-result -Wno-unused-local-typedefs" install )
+
+miniupnpc_inst/lib/libminiupnpc.a:
+	if [ ! -e miniupnpc-2.1.20191224.tar.gz ] ; then wget http://ftp.hetzner.de/gentoo/distfiles/a3/miniupnpc-2.1.20191224.tar.gz ; fi
+	if [ ! -e miniupnpc-2.1.20191224 ] ; then tar -xaf miniupnpc-2.1.20191224.tar.gz ; fi
+	( cd miniupnpc-2.1.20191224 ; cmake -DCMAKE_INSTALL_PREFIX=$(shell pwd)/miniupnpc_inst )
+	make -C miniupnpc-2.1.20191224 install
+
+db_inst:
+	if [ ! -e db-5.3.28.tar.gz ] ; then wget https://ftp.osuosl.org/pub/blfs/conglomeration/db/db-5.3.28.tar.gz	; fi
+	if [ ! -e db-5.3.28 ] ; then tar -xaf db-5.3.28.tar.gz; fi
+	if [ ! -e db-5.3.28/build_unix/Makefile ] ; then ( cd db-5.3.28/build_unix/ ; ../dist/configure --prefix=$(shell pwd)/db_inst --enable-stl ) ; fi
+	make -C db-5.3.28/build_unix/ -j$$(nproc)
+	make -C db-5.3.28/build_unix/ install
+	
+#/var/tmp/portage/sys-libs/db-5.3.28-r2/work/db-5.3.28/dist/configure --prefix=/usr --build=x86_64-pc-linux-gnu --host=x86_64-pc-linux-gnu --mandir=/usr/share/man --infodir=/usr/share/info --datadir=/usr/share --sysconfdir=/etc --localstatedir=/var/lib --libdir=/usr/lib64 --enable-compat185 --enable-dbm --enable-o_direct --without-uniquename --enable-sql --enable-sql_codegen --disable-sql_compat --with-mutex=x86/gcc-assembly --disable-cxx --disable-stl --disable-java --disable-tcl --disable-test
+
+externals: openssl_inst/lib/libssl.a boost_inst/lib/libboost_atomic.a miniupnpc_inst/lib/libminiupnpc.a 
+#db_inst
 
 obj/%.o: %.cpp
 	$(CXX) -c $(xCXXFLAGS) -MMD -MF $(@:%.o=%.d) -o $@ $<
@@ -221,7 +249,7 @@ obj/%.o: hash/%.c
 	      -e '/^$$/ d' -e 's/$$/ :/' < $(@:%.o=%.d) >> $(@:%.o=%.P); \
 	  rm -f $(@:%.o=%.d)
 
-magid: $(OBJS:obj/%=obj/%) openssl_inst/lib/libssl.a
+magid: $(OBJS:obj/%=obj/%)
 	$(LINK) $(xCXXFLAGS) -o $@ $(LIBPATHS) $^ $(xLDFLAGS) $(LIBS)
 
 TESTOBJS := $(patsubst test/%.cpp,obj-test/%.o,$(wildcard test/*.cpp))
